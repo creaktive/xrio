@@ -1,0 +1,10 @@
+*** ./app.cpp
+--- ./app.cpp
+265c265
+< 				INFOSTR( "%02u 0x%04hx %-4hu     0x%04hx %-8ld %s %-24.24s\n",
+---
+> 				INFOSTR( "%02u 0x%04hx %-4hu     0x%04hx %-8ld %s %s\n",
+285c285
+< 				INFOSTR( "%02u %-8ld %-3d %-5u %s %-36.36s\n",
+---
+> 				INFOSTR( "%02u %-8ld %-3d %-5u %s %s\n",
