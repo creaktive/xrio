@@ -1,0 +1,148 @@
+diff -adNru rio107-orig/app.cpp rio107/app.cpp
+--- rio107-orig/app.cpp	Fri Jun 11 13:26:46 1999
++++ rio107/app.cpp	Sat Mar 13 11:08:18 2004
+@@ -262,7 +262,7 @@
+ 
+ 			for( UINT uiA=0; uiA<uiCountEntry; ++uiA, ++pDirEntry )
+ 			{
+-				INFOSTR( "%02u 0x%04hx %-4hu     0x%04hx %-8ld %s %-24.24s\n",
++				INFOSTR( "%02u 0x%04hx %-4hu     0x%04hx %-8ld %s %s\n",
+ 					uiA+1,
+ 					pDirEntry->m_usPos32KBlock,
+ 					pDirEntry->m_usCount32KBlock,
+@@ -282,7 +282,7 @@
+ 
+ 			for( UINT uiA=0; uiA<uiCountEntry; ++uiA, ++pDirEntry )
+ 			{
+-				INFOSTR( "%02u %-8ld %-3d %-5u %s %-36.36s\n",
++				INFOSTR( "%02u %-8ld %-3d %-5u %s %s\n",
+ 					uiA+1,
+ 					pDirEntry->m_lSize,
+ 					GetBitRate(pDirEntry->m_aucProperty),
+@@ -414,7 +414,7 @@
+ 		// upload
+ 		if ( bVerbose )
+ 			INFOSTR( "uploading %s\n", pszBuf );
+-		if ( !cRio.TxFile(pszBuf, bVerbose ? ProgressCallback : NULL) )
++		if ( !cRio.TxFile(NULL, pszBuf, bVerbose ? ProgressCallback : NULL) )
+ 		{
+ 			ERRORSTR( "tx file failed, %s\n", cRio.GetErrorStr() );
+ 			fclose( fpFile );
+@@ -790,7 +790,7 @@
+ 		if ( bVerbose )
+ 			INFOSTR( "downloading %s\n", pszFileDownload );
+ 
+-		if ( !cRio.RxFile(pszFileDownload, bVerbose ? ProgressCallback : NULL) )
++		if ( !cRio.RxFile(NULL, pszFileDownload, bVerbose ? ProgressCallback : NULL) )
+ 		{
+ 			ERRORSTR( "rx file failed, %s\n", cRio.GetErrorStr() );
+ 			CLEANUP_RETURN( FALSE );
+diff -adNru rio107-orig/rio.cpp rio107/rio.cpp
+--- rio107-orig/rio.cpp	Fri Jun 11 13:26:46 1999
++++ rio107/rio.cpp	Sat Mar 13 11:08:18 2004
+@@ -52,6 +52,15 @@
+ 	#define		DELETEARRAY				delete[]
+ 	#define		ID_DRIVER_VERSION		101
+ 
++#elif defined(_DLPORTIO)
++	// MS VC++ v6.0 with DLPortIO
++	#include	<windows.h>
++	#include	"dlportio.h"
++	#define		OUTPORT( p, v )			DlPortWritePortUchar( p, v )
++	#define		INPORT( p )				DlPortReadPortUchar( p )
++	#define		CLOCK_SECOND			CLOCKS_PER_SEC
++	#define		DELETEARRAY				delete[]
++
+ #elif defined(_WIN32)
+ 	// MS VC++ v5.0 for Win9x
+ 	#include	<conio.h>
+@@ -135,7 +144,7 @@
+ #define		DELETEBLOCK( p )		{ if ( p ) { DELETEARRAY p; p = NULL; } }
+ 
+ // command out
+-#define		COMMANDOUT(v1, v2, v3)	{ OUTPORT(m_iPortData, v1); OUTPORT(m_iPortControl, v2); OUTPORT(m_iPortControl, v3); }
++#define		COMMANDOUT(v1, v2, v3)	{ OUTPORT(m_iPortData, (unsigned char) v1); OUTPORT(m_iPortControl, v2); OUTPORT(m_iPortControl, v3); }
+ // wait for reply
+ #define		WAITNIBBLE( v1 )		{ if (!WaitInput(v1)) return FALSE; }
+ #define		WAITACK()				{ if (!WaitAck()) return FALSE; }
+@@ -1174,7 +1183,7 @@
+ 	return bResult;
+ }
+ 
+-BOOL CRio::TxFile( char* pszPathFile, BOOL (*pfProgress)(int iPos, int iCount) )
++BOOL CRio::TxFile( char* pszFile, char* pszPathFile, BOOL (*pfProgress)(int iPos, int iCount) )
+ {
+ 	// directory header
+ 	CDirHeader& cDirHeader = m_cDirBlock.m_cDirHeader;
+@@ -1263,7 +1272,11 @@
+ 	cDirEntry.m_aucProperty[ 1 ] = aucProperty[ 2 ];
+ 	cDirEntry.m_aucProperty[ 2 ] = aucProperty[ 1 ];
+ 	cDirEntry.m_aucProperty[ 3 ] = aucProperty[ 0 ];
+-	strncpy( cDirEntry.m_szName, GetFile(pszPathFile), sizeof(cDirEntry.m_szName) );
++
++	if ( pszFile )
++		strncpy( cDirEntry.m_szName, pszFile, sizeof(cDirEntry.m_szName) );
++	else
++		strncpy( cDirEntry.m_szName, GetFile(pszPathFile), sizeof(cDirEntry.m_szName) );
+ 
+ 	// create zero initialized temp block
+ 	UCHAR* paucBlock;
+@@ -1355,10 +1368,12 @@
+ 	return bResult;
+ }
+ 
+-BOOL CRio::RxFile( char* pszPathFile, BOOL (*pfProgress)(int iPos, int iCount) )
++BOOL CRio::RxFile( char* pszFile, char* pszPathFile, BOOL (*pfProgress)(int iPos, int iCount) )
+ {
+ 	// get directory entry for file
+-	char* pszFile = GetFile( pszPathFile );
++	if ( !pszFile )
++		pszFile = GetFile( pszPathFile );
++
+ 	CDirEntry* pDirEntry = FindFile( pszFile );
+ 	if ( !pDirEntry )
+ 	{
+@@ -1436,4 +1451,3 @@
+ 
+ 	return bResult;
+ }
+-
+diff -adNru rio107-orig/rio.h rio107/rio.h
+--- rio107-orig/rio.h	Fri Jun 11 13:26:46 1999
++++ rio107/rio.h	Sat Mar 13 10:51:26 2004
+@@ -222,8 +222,8 @@
+ 	BOOL SetFileOrder( UINT* pauiPosOrder, UINT uiCount );
+ 	BOOL TxDirectory( void );
+ 	BOOL RxDirectory( void );
+-	BOOL TxFile( char* pszPathFile, BOOL (*pfProgress)(int iPos, int iCount) );
+-	BOOL RxFile( char* pszPathFile, BOOL (*pfProgress)(int iPos, int iCount) );
++	BOOL TxFile( char* pszFile, char* pszPathFile, BOOL (*pfProgress)(int iPos, int iCount) );
++	BOOL RxFile( char* pszFile, char* pszPathFile, BOOL (*pfProgress)(int iPos, int iCount) );
+ };
+ 
+ #endif		// _RIO_
+diff -adNru rio107-orig/win.mak rio107/win.mak
+--- rio107-orig/win.mak	Wed Dec 31 21:00:00 1969
++++ rio107/win.mak	Sat Mar 13 11:15:42 2004
+@@ -0,0 +1,21 @@
++###############################################################################
++#
++#	RIO utility makefile for MSVC++ v6 using DriverLINX Port I/O Driver
++#	for Win95 and WinNT
++#
++#	Patched by Stas (cr@cker.com.br; http://sysd.org/)
++#
++###############################################################################
++
++# Place 'Dlportio.h' & 'Dlportio.lib' files into this directory:
++DLPORTIO	= DLPortIO
++
++all:		rio.exe
++
++rio.exe:	app.cpp rio.cpp
++		cl /D "_DLPORTIO" /I $(DLPORTIO) rio.cpp app.cpp /MD /link $(DLPORTIO)\Dlportio.lib
++
++clean:
++		del rio.exe
++		del app.obj
++		del rio.obj
